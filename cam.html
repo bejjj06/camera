@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fast Product Scanner & PC Webcam</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        #videoContainer {
+            position: relative;
+            margin: 20px auto;
+            width: 100%;
+            max-width: 640px;
+        }
+        #video {
+            width: 100%;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+        }
+        #canvas {
+            display: none;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+        .btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .btn-secondary {
+            background-color: #555;
+        }
+        #result {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+            text-align: left;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .mode-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 10px 0;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+        }
+        #codeMarker {
+            position: absolute;
+            border: 3px solid #FF4136;
+            border-radius: 4px;
+            display: none;
+        }
+        .scanning-line {
+            position: absolute;
+            height: 2px;
+            width: 100%;
+            background-color: rgba(255, 65, 54, 0.8);
+            animation: scan 1s linear infinite;
+        }
+        @keyframes scan {
+            0% { top: 0; }
+            50% { top: 100%; }
+            100% { top: 0; }
+        }
+        .scan-region {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 70%;
+            height: 30%;  /* Optimized height for product barcodes */
+            transform: translate(-50%, -50%);
+            border: 2px dashed #FF4136;
+            box-sizing: border-box;
+        }
+        .instructions {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f0f0f0;
+            border-left: 4px solid #007bff;
+            text-align: left;
+        }
+        #scanOptions {
+            margin: 10px 0;
+            text-align: left;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        #historyList {
+            max-height: 200px;
+            overflow-y: auto;
+            text-align: left;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 20px;
+        }
+        .history-item {
+            border-bottom: 1px solid #eee;
+            padding: 5px 0;
+        }
+        #flashlight {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(0,0,0,0.5);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .dropdown {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fast Product Scanner & PC Webcam</h1>
+    
+    <div class="instructions">
+        <p><strong>Instructions:</strong></p>
+        <ol>
+            <li>On your smartphone, visit this page and allow camera access</li>
+            <li>Select "Start Camera" to begin streaming</li>
+            <li>In Scanner Mode, center product barcodes in the scan region</li>
+            <li>For best results, ensure good lighting and hold steady</li>
+            <li>Use the flashlight button if needed for better visibility</li>
+        </ol>
+    </div>
+
+    <div id="videoContainer">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="overlay">
+            <div id="codeMarker"></div>
+            <div class="scan-region">
+                <div class="scanning-line"></div>
+            </div>
+            <button id="flashlight" style="display:none">💡</button>
+        </div>
+    </div>
+
+    <div>
+        <button id="startBtn" class="btn">Start Camera</button>
+        <button id="switchBtn" class="btn btn-secondary">Switch Camera</button>
+        <button id="modeBtn" class="btn">Webcam Mode</button>
+    </div>
+
+    <div class="mode-indicator" id="modeIndicator">Webcam Mode</div>
+
+    <div id="scanOptions" style="display:none">
+        <div class="dropdown">
+            <label for="scanType">Scanner Type:</label>
+            <select id="scanType">
+                <option value="auto">Auto Detect (QR & Barcodes)</option>
+                <option value="qr">QR Codes Only</option>
+                <option value="barcode">Product Barcodes Only</option>
+            </select>
+        </div>
+        <div class="dropdown">
+            <label for="scanResolution">Scan Resolution:</label>
+            <select id="scanResolution">
+                <option value="high">High (Accurate but Slower)</option>
+                <option value="medium" selected>Medium (Balanced)</option>
+                <option value="low">Low (Fast but Less Accurate)</option>
+            </select>
+        </div>
+        <label><input type="checkbox" id="continuousScan" checked> Continuous Scanning</label>
+        <label><input type="checkbox" id="beepOnScan" checked> Beep on Scan</label>
+    </div>
+
+    <div id="result">Ready to scan products...</div>
+
+    <div id="historyList">
+        <h3>Scan History</h3>
+        <div id="historyItems"></div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const result = document.getElementById('result');
+        const startBtn = document.getElementById('startBtn');
+        const switchBtn = document.getElementById('switchBtn');
+        const modeBtn = document.getElementById('modeBtn');
+        const modeIndicator = document.getElementById('modeIndicator');
+        const codeMarker = document.getElementById('codeMarker');
+        const flashlightBtn = document.getElementById('flashlight');
+        const scanOptions = document.getElementById('scanOptions');
+        const scanTypeSelect = document.getElementById('scanType');
+        const resolutionSelect = document.getElementById('scanResolution');
+        const continuousScanCheck = document.getElementById('continuousScan');
+        const beepOnScanCheck = document.getElementById('beepOnScan');
+        const historyItems = document.getElementById('historyItems');
+        
+        let currentStream = null;
+        let isScanning = false;
+        let scannerMode = false;
+        let facingMode = "environment"; // Start with back camera
+        let track = null;
+        let flashlightOn = false;
+        let scanHistory = [];
+        let lastScannedCode = null;
+        let lastScannedTime = 0;
+        let scanning = false;
+        let scanAttempts = 0;
+        
+        // Beep sound for successful scan
+        const beepSound = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU");
+        beepSound.src = "data:audio/mp3;base64,//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAAFAAAGUACFhYWFhYWFhYWFhYWFhYWFhYWFvb29vb29vb29vb29vb29vb29vb3T09PT09PT09PT09PT09PT09PT0/Ly8vLy8vLy8vLy8vLy8vLy8vLyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQxAADwAABpAAAACAAADSAAAAETEFNRTMuOTkuNVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU=";
+        
+        // Setup camera with optimal settings for product scanning
+        async function setupCamera() {
+            try {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+                
+                const constraints = {
+                    video: {
+                        facingMode: facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        // For faster scanning, increase framerate
+                        frameRate: { ideal: 30 }
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    
+                    // Get video track for flashlight control
+                    track = stream.getVideoTracks()[0];
+                    
+                    // Check if flashlight is supported
+                    if (track.getCapabilities && track.getCapabilities().torch) {
+                        flashlightBtn.style.display = "flex";
+                    } else {
+                        flashlightBtn.style.display = "none";
+                    }
+                    
+                    if (scannerMode) {
+                        startScanning();
+                    }
+                };
+                
+                startBtn.textContent = "Stop Camera";
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                result.textContent = `Error accessing camera: ${err.message}. Please make sure your browser has camera permissions.`;
+            }
+        }
+        
+        // Toggle flashlight
+        function toggleFlashlight() {
+            if (!track || !track.getCapabilities || !track.getCapabilities().torch) {
+                return;
+            }
+            
+            flashlightOn = !flashlightOn;
+            track.applyConstraints({
+                advanced: [{ torch: flashlightOn }]
+            });
+            
+            flashlightBtn.textContent = flashlightOn ? "🔆" : "💡";
+        }
+        
+        // Start scanning for codes
+        function startScanning() {
+            if (!isScanning) {
+                isScanning = true;
+                scanAttempts = 0;
+                
+                // Set up optimal scanner based on selection
+                const scanType = scanTypeSelect.value;
+                
+                if (scanType === "barcode" || scanType === "auto") {
+                    // Initialize Quagga for barcode scanning
+                    setupQuagga();
+                } else {
+                    // Use jsQR for QR codes
+                    scanCode();
+                }
+            }
+        }
+        
+        // Setup Quagga barcode scanner
+        function setupQuagga() {
+            if (!isScanning) return;
+            
+            const resolution = getResolutionConfig();
+            
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: video,
+                    constraints: {
+                        width: resolution.width,
+                        height: resolution.height,
+                        facingMode: facingMode
+                    },
+                },
+                decoder: {
+                    readers: [
+                        "ean_reader",  // EAN-13 & UPC-A
+                        "ean_8_reader", // EAN-8
+                        "upc_reader", // UPC 
+                        "upc_e_reader", // UPC-E
+                        "code_128_reader", // Code 128
+                        "code_39_reader", // Code 39
+                        "code_93_reader", // Code 93
+                        "codabar_reader" // Codabar
+                    ],
+                    multiple: false,
+                    debug: false,
+                    locator: {
+                        halfSample: true,
+                        patchSize: resolution.patchSize
+                    }
+                },
+                locate: true,
+                frequency: 10
+            }, function(err) {
+                if (err) {
+                    console.error("Quagga initialization failed:", err);
+                    // Fallback to QR scanning
+                    scanCode();
+                    return;
+                }
+                
+                Quagga.start();
+                
+                // Process barcode results
+                Quagga.onDetected(function(result) {
+                    const code = result.codeResult;
+                    
+                    // Validate the barcode
+                    if (code && code.code && validateBarcode(code)) {
+                        handleSuccessfulScan(code.code, code.format, result.box);
+                    }
+                });
+            });
+        }
+        
+        // Validate barcode to reduce false positives
+        function validateBarcode(code) {
+            // Only accept codes that were detected with a certain confidence
+            if (code.confidence < 0.7) {
+                return false;
+            }
+            
+            // Check if it's the same code we just scanned
+            if (code.code === lastScannedCode && Date.now() - lastScannedTime < 2000) {
+                return false;
+            }
+            
+            // EAN/UPC validation
+            if (["ean_13", "ean_8", "upc_a", "upc_e"].includes(code.format)) {
+                // Simple validation: check if the barcode is all digits
+                return /^\d+$/.test(code.code);
+            }
+            
+            return true;
+        }
+        
+        // Get resolution configuration based on user selection
+        function getResolutionConfig() {
+            const resolution = resolutionSelect.value;
+            
+            switch (resolution) {
+                case "high":
+                    return { width: 1280, height: 720, patchSize: "large" };
+                case "low":
+                    return { width: 640, height: 480, patchSize: "x-small" };
+                case "medium":
+                default:
+                    return { width: 800, height: 600, patchSize: "medium" };
+            }
+        }
+        
+        // Process successful scan
+        function handleSuccessfulScan(codeValue, codeFormat, location) {
+            // Prevent duplicate scans
+            if (codeValue === lastScannedCode && Date.now() - lastScannedTime < 2000) {
+                return;
+            }
+            
+            lastScannedCode = codeValue;
+            lastScannedTime = Date.now();
+            
+            // Visual feedback
+            if (location) {
+                drawCodeMarker(location);
+                
+                // Auto-hide marker after a delay
+                setTimeout(() => {
+                    codeMarker.style.display = 'none';
+                }, 2000);
+            }
+            
+            // Sound feedback
+            if (beepOnScanCheck.checked) {
+                beepSound.play().catch(e => console.log("Beep error:", e));
+            }
+            
+            // Display result
+            const resultText = `Type: ${codeFormat || 'Barcode/QR'}\nCode: ${codeValue}\nTime: ${new Date().toLocaleTimeString()}`;
+            result.textContent = resultText;
+            
+            // Add to history
+            addToHistory(codeValue, codeFormat);
+            
+            // If not continuous scanning, stop
+            if (!continuousScanCheck.checked) {
+                stopScanning();
+                toggleMode(); // Switch back to webcam mode
+            }
+        }
+        
+        // Add scan to history
+        function addToHistory(code, format) {
+            // Add to beginning of array
+            scanHistory.unshift({ code, format, time: new Date() });
+            
+            // Limit history size
+            if (scanHistory.length > 20) {
+                scanHistory.pop();
+            }
+            
+            // Update UI
+            updateHistoryDisplay();
+        }
+        
+        // Update history display
+        function updateHistoryDisplay() {
+            historyItems.innerHTML = '';
+            
+            if (scanHistory.length === 0) {
+                historyItems.innerHTML = '<p>No scans yet</p>';
+                return;
+            }
+            
+            scanHistory.forEach((item, index) => {
+                const historyItem = document.createElement('div');
+                historyItem.className = 'history-item';
+                historyItem.textContent = `${item.code} (${item.format || 'Code'}) - ${item.time.toLocaleTimeString()}`;
+                historyItems.appendChild(historyItem);
+            });
+        }
+        
+        // QR Code scanning using jsQR
+        function scanCode() {
+            if (!isScanning) return;
+            
+            // Check if we've been unsuccessfully trying to scan for too long
+            scanAttempts++;
+            if (scanAttempts > 100 && scanTypeSelect.value === "auto") {
+                // Try switching to Quagga for better barcode detection
+                setupQuagga();
+                return;
+            }
+            
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Use jsQR to detect QR codes
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+            });
+            
+            if (code) {
+                // Handle QR code
+                handleSuccessfulScan(code.data, "QR Code", code.location);
+            } else {
+                // Continue scanning
+                requestAnimationFrame(scanCode);
+            }
+        }
+        
+        // Draw marker for detected code
+        function drawCodeMarker(location) {
+            // For QR code with corners
+            if (location.topLeftCorner) {
+                const minX = Math.min(location.topLeftCorner.x, location.bottomLeftCorner.x);
+                const minY = Math.min(location.topLeftCorner.y, location.topRightCorner.y);
+                const maxX = Math.max(location.topRightCorner.x, location.bottomRightCorner.x);
+                const maxY = Math.max(location.bottomLeftCorner.y, location.bottomRightCorner.y);
+                
+                const width = maxX - minX;
+                const height = maxY - minY;
+                
+                codeMarker.style.left = `${minX / canvas.width * 100}%`;
+                codeMarker.style.top = `${minY / canvas.height * 100}%`;
+                codeMarker.style.width = `${width / canvas.width * 100}%`;
+                codeMarker.style.height = `${height / canvas.height * 100}%`;
+            } 
+            // For barcode with box
+            else if (Array.isArray(location)) {
+                let minX = Infinity, minY = Infinity;
+                let maxX = 0, maxY = 0;
+                
+                location.forEach(point => {
+                    minX = Math.min(minX, point[0]);
+                    minY = Math.min(minY, point[1]);
+                    maxX = Math.max(maxX, point[0]);
+                    maxY = Math.max(maxY, point[1]);
+                });
+                
+                const width = maxX - minX;
+                const height = maxY - minY;
+                
+                codeMarker.style.left = `${minX / canvas.width * 100}%`;
+                codeMarker.style.top = `${minY / canvas.height * 100}%`;
+                codeMarker.style.width = `${width / canvas.width * 100}%`;
+                codeMarker.style.height = `${height / canvas.height * 100}%`;
+            }
+            
+            codeMarker.style.display = 'block';
+        }
+        
+        // Stop scanning
+        function stopScanning() {
+            isScanning = false;
+            if (Quagga.initialized) {
+                try {
+                    Quagga.stop();
+                } catch (e) {
+                    console.log("Error stopping Quagga:", e);
+                }
+            }
+            codeMarker.style.display = 'none';
+        }
+        
+        // Toggle scanner mode
+        function toggleMode() {
+            scannerMode = !scannerMode;
+            
+            if (scannerMode) {
+                modeBtn.textContent = "Scanner Mode";
+                modeIndicator.textContent = "Scanner Mode";
+                modeIndicator.style.backgroundColor = "#FF4136";
+                scanOptions.style.display = "block";
+                
+                if (video.srcObject) {
+                    startScanning();
+                }
+            } else {
+                modeBtn.textContent = "Webcam Mode";
+                modeIndicator.textContent = "Webcam Mode";
+                modeIndicator.style.backgroundColor = "#007bff";
+                scanOptions.style.display = "none";
+                stopScanning();
+                codeMarker.style.display = 'none';
+                
+                // Turn off flashlight if on
+                if (flashlightOn) {
+                    toggleFlashlight();
+                }
+            }
+        }
+        
+        // Event listeners
+        startBtn.addEventListener('click', () => {
+            if (currentStream) {
+                // Stop camera
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+                video.srcObject = null;
+                startBtn.textContent = "Start Camera";
+                stopScanning();
+            } else {
+                // Start camera
+                setupCamera();
+            }
+        });
+        
+        switchBtn.addEventListener('click', () => {
+            facingMode = facingMode === "user" ? "environment" : "user";
+            if (currentStream) {
+                setupCamera();
+            }
+        });
+        
+        modeBtn.addEventListener('click', toggleMode);
+        flashlightBtn.addEventListener('click', toggleFlashlight);
+        
+        // Handle scanner type change
+        scanTypeSelect.addEventListener('change', () => {
+            if (isScanning) {
+                stopScanning();
+                startScanning();
+            }
+        });
+        
+        // Handle resolution change
+        resolutionSelect.addEventListener('change', () => {
+            if (isScanning) {
+                stopScanning();
+                startScanning();
+            }
+        });
+        
+        // Initial setup
+        function init() {
+            // Check if camera is supported
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                result.textContent = "Your browser doesn't support accessing the camera. Please try a modern browser like Chrome, Firefox, or Edge.";
+                startBtn.disabled = true;
+                switchBtn.disabled = true;
+                return;
+            }
+            
+            // Initialize history
+            updateHistoryDisplay();
+        }
+        
+        init();
+    </script>
+</body>
+</html>
